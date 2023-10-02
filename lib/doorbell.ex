@@ -5,11 +5,19 @@ defmodule Doorbell do
 
   defmacro __using__(_opts \\ []) do
     quote do
+      import Doorbell, only: [arg: 1]
       @on_definition {Doorbell, :on_definition}
       @before_compile {Doorbell, :before_compile}
 
-      Module.register_attribute(__MODULE__, :gated_funs, accumulate: true)
       Module.register_attribute(__MODULE__, :gate, accumulate: true)
+      Module.register_attribute(__MODULE__, :arg, accumulate: true)
+      Module.register_attribute(__MODULE__, :gated_funs, accumulate: true)
+    end
+  end
+
+  defmacro arg(name) do
+    quote do
+      @arg %{name: unquote(name)}
     end
   end
 
@@ -18,28 +26,31 @@ defmodule Doorbell do
     # IO.inspect(Map.keys(env), width: :infinity)
     IO.inspect(fun)
 
-    current_gate = Module.get_attribute(env.module, :gate)
+    current_args = Module.get_attribute(env.module, :arg)
 
-    IO.inspect(current_gate)
+    IO.inspect(current_args)
 
-    {last_fun, last_gate} =
+    {last_fun, last_args} =
       case Module.get_attribute(env.module, :gated_funs) do
-        [{_env, _def, last_fun, _args, _guards, _body, last_gate} | _] ->
-          {last_fun, last_gate}
+        [{_env, _def, last_fun, _args, _guards, _body, last_args} | _] ->
+          {last_fun, last_args}
 
         _ ->
           {nil, nil}
       end
 
     cond do
-      current_gate != [] ->
+      current_args != [] ->
+        # gate_args = Module.get_attribute(env.module, :arg)
+
         Module.put_attribute(
           env.module,
           :gated_funs,
-          {env, :def, fun, args, guards, body, current_gate}
+          {env, :def, fun, args, guards, body, current_args}
         )
 
         Module.delete_attribute(env.module, :gate)
+        Module.delete_attribute(env.module, :arg)
 
       fun == last_fun ->
         IO.puts("SAME FUNNNNNNNN")
@@ -47,7 +58,7 @@ defmodule Doorbell do
         Module.put_attribute(
           env.module,
           :gated_funs,
-          {env, :def, fun, args, guards, body, last_gate}
+          {env, :def, fun, args, guards, body, last_args}
         )
 
       true ->
@@ -58,8 +69,10 @@ defmodule Doorbell do
   def on_definition(_env, _kind, _fun, _args, _guards, _body), do: nil
 
   # https://stackoverflow.com/questions/42929471/elixir-macro-rewriting-module-methods-and-global-using-macro
-  def def_clause({env, _kind, fun, args, guard, body, _gate_body}) do
+  def def_clause({env, _kind, fun, args, guard, body, _gate_args}) do
     IO.inspect(fun, label: "def clause fun")
+    IO.inspect(args, label: "def clause args")
+    IO.inspect(body, label: "def clause body")
     under_fun = :"_#{fun}"
 
     case guard do
@@ -70,7 +83,11 @@ defmodule Doorbell do
           # def(Macro.escape(:"_#{unquote(fun)}")(unquote_splicing(args), unquote(body)))
           # def(unquote(fun)(unquote_splicing(args)), unquote(body)) # works
           # def(Macro.escape(:"_#{fun}")(unquote_splicing(args)), unquote(body))
-          defp(unquote(under_fun)(unquote_splicing(args)), unquote(body))
+          defp(unquote(under_fun)(:ok, unquote_splicing(args)), unquote(body))
+
+          defp unquote(under_fun)(:error, unquote_splicing(args)) do
+            json(unquote(hd(args)), %{error: true})
+          end
 
           # Kernel.def(:"_#{fun}", (unquote_splicing(args)), unquote(body))
         end
@@ -117,8 +134,11 @@ defmodule Doorbell do
       end)
 
     for {fun, funs} <- grouped_gated_funs do
-      {env, _kind, _fun, args, guard, body, gate_body} = funs |> Enum.reverse() |> List.first()
+      {env, _kind, _fun, args, guard, body, gate_args} = funs |> Enum.reverse() |> List.first()
       under_fun = :"_#{fun}"
+
+      IO.inspect(gate_args, label: "GATED ARGS")
+      arg_names = Enum.map(gate_args, &to_string(&1.name))
 
       {one, two, three} =
         quote do
@@ -128,11 +148,11 @@ defmodule Doorbell do
 
           def unquote(fun)(conn, params) do
             # IO.puts(".............")
-            IO.inspect(unquote(gate_body))
+            # IO.inspect(unquote(gate_body))
             # IO.puts("waaaaaa")
-            # unquote(body)
-            # apply(__MODULE__, :"_#{unquote(fun)}", [conn, params])
-            unquote(under_fun)(conn, params)
+            parsed_params = Map.take(params, unquote(arg_names))
+            # unquote(under_fun)(:ok, conn, parsed_params)
+            unquote(under_fun)(:ok, conn, parsed_params)
           end
         end
         |> IO.inspect()

@@ -15,7 +15,9 @@ defmodule DoorbellTest do
     # Ding.dong()
 
     @gate do
-      :shit
+      arg(:shit)
+      arg(:poop)
+      arg(:junk)
     end
 
     def get_stuff(conn, %{"junk" => "idk"}) do
