@@ -2,70 +2,115 @@ defmodule DoorbellTest do
   use ExUnit.Case
   doctest Doorbell
 
-  defmodule FakeController do
-    use Doorbell
-
-    # require Ding
-
-    # @doorbell do
-    #   # param(:name, :string)
-    #   1
-    # end
-
-    # Ding.dong()
-
-    @gate do
-      arg(:shit)
-      arg(:poop)
-      arg(:junk)
-    end
-
-    def get_stuff(conn, %{"junk" => "idk"}) do
-      json(conn, %{success: true})
-    end
-
-    # @gate do
-    #   :shit
-    # end
-    def get_stuff(conn, params) do
-      IO.inspect(params)
-      json(conn, %{success: true})
-    end
-
-    # @doorbell do
-    #   2
-    # end
-    # cry do
-    #   :balls
-    # end
-
-    # @gate do
-    #   :shit
-    # end
-    def get_more(conn, params) do
-      IO.inspect(params)
-      json(conn, %{success: true})
-    end
-
-    def wtf?(v) do
-      IO.inspect(v)
-      IO.puts("ONE ONE ONE")
-    end
-
-    defp json(conn, map) do
-      Map.put(conn, :response, map)
-    end
+  def json(conn, map) do
+    Map.put(conn, :response, map)
   end
 
-  test "greets the world" do
-    IO.puts("...................................START TEST")
-    FakeController.__info__(:functions) |> IO.inspect()
-    # IO.inspect(quote do: FakeController)
-    FakeController.get_stuff(%{}, %{"junk" => "idk"}) |> IO.inspect()
-    FakeController.get_stuff(%{}, %{"junk" => "idkw"}) |> IO.inspect()
-    # FakeController._get_stuff(%{}, %{"junk" => "idk"}) |> IO.inspect()
-    # FakeController.wtf?(3)
-    # FakeController.wtf?(1)
-    # FakeController.ding_dong() |> IO.inspect()
+  test "pattern matching still works" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @gate do
+        arg(:food)
+      end
+
+      def get_stuff(conn, %{"food" => "pumpkin"}) do
+        json(conn, %{pumkin: :bad})
+      end
+
+      def get_stuff(conn, %{"food" => "pudding"}) do
+        json(conn, %{pudding: :good})
+      end
+
+      def get_stuff(conn, _params) do
+        json(conn, %{potato: :ok})
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{"food" => "pudding"})
+    assert response[:pudding] == :good
+    %{response: response} = FakeController.get_stuff(%{}, %{})
+    assert response[:potato] == :ok
+  end
+
+  test "invalid args are dropped" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @gate do
+        arg(:user_id)
+      end
+
+      def get_stuff(conn, params) do
+        json(conn, params)
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{"user_id" => 22, "food" => "pudding"})
+    assert Map.keys(response) == ["user_id"]
+  end
+
+  test "required args are required" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @gate do
+        arg(:user_id, required: true)
+      end
+
+      def get_stuff(conn, params) do
+        if params, do: raise("this should never be called")
+        json(conn, params)
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{})
+    assert length(response[:errors]) == 1
+  end
+
+  test "min/max is respected for strings" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @gate do
+        arg(:username, min: 3, max: 10)
+      end
+
+      def get_stuff(conn, params) do
+        json(conn, params)
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{username: "me"})
+    assert length(response[:errors]) == 1
+
+    %{response: response} = FakeController.get_stuff(%{}, %{username: "memeMEMEmeme"})
+    assert length(response[:errors]) == 1
+  end
+
+  test "invalid options do not compile" do
+    ast =
+      quote do
+        defmodule FakeController do
+          use Doorbell
+          import DoorbellTest, only: [json: 2]
+
+          @gate do
+            arg(:username, porcupine: 3)
+          end
+
+          def get_stuff(conn, params) do
+            json(conn, params)
+          end
+        end
+      end
+
+    assert_raise RuntimeError, fn ->
+      Code.eval_quoted(ast)
+    end
   end
 end

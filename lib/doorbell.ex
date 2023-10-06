@@ -5,7 +5,7 @@ defmodule Doorbell do
 
   defmacro __using__(_opts \\ []) do
     quote do
-      import Doorbell, only: [arg: 1]
+      import Doorbell, only: [arg: 1, arg: 2]
       @on_definition {Doorbell, :on_definition}
       @before_compile {Doorbell, :before_compile}
 
@@ -15,9 +15,17 @@ defmodule Doorbell do
     end
   end
 
-  defmacro arg(name) do
+  @opts ~w(required min max)a
+
+  defmacro arg(name, opts \\ []) do
+    extra_opts = Keyword.drop(opts, @opts)
+
     quote do
-      @arg %{name: unquote(name)}
+      if unquote(extra_opts) != [] do
+        raise "Extra opts!"
+      end
+
+      @arg %{name: unquote(name), required: unquote(opts)[:required], min: unquote(opts)[:min]}
     end
   end
 
@@ -28,7 +36,7 @@ defmodule Doorbell do
 
     current_args = Module.get_attribute(env.module, :arg)
 
-    IO.inspect(current_args)
+    IO.inspect(current_args, label: "content args")
 
     {last_fun, last_args} =
       case Module.get_attribute(env.module, :gated_funs) do
@@ -70,9 +78,9 @@ defmodule Doorbell do
 
   # https://stackoverflow.com/questions/42929471/elixir-macro-rewriting-module-methods-and-global-using-macro
   def def_clause({env, _kind, fun, args, guard, body, _gate_args}) do
-    IO.inspect(fun, label: "def clause fun")
-    IO.inspect(args, label: "def clause args")
-    IO.inspect(body, label: "def clause body")
+    # IO.inspect(fun, label: "def clause fun")
+    # IO.inspect(args, label: "def clause args")
+    # IO.inspect(body, label: "def clause body")
     under_fun = :"_#{fun}"
 
     case guard do
@@ -123,7 +131,7 @@ defmodule Doorbell do
       :__struct__
     ]
 
-    IO.inspect(env.module)
+    # IO.inspect(env.module)
 
     gated_funs = Module.get_attribute(env.module, :gated_funs)
     Module.delete_attribute(env.module, :gated_funs)
@@ -137,31 +145,41 @@ defmodule Doorbell do
       {env, _kind, _fun, args, guard, body, gate_args} = funs |> Enum.reverse() |> List.first()
       under_fun = :"_#{fun}"
 
-      IO.inspect(gate_args, label: "GATED ARGS")
       arg_names = Enum.map(gate_args, &to_string(&1.name))
+      required_args = gate_args |> Enum.filter(& &1.required) |> Enum.map(&to_string(&1.name))
+
+      margs = Macro.escape(gate_args)
 
       {one, two, three} =
         quote do
           defoverridable [{unquote(fun), 2}]
 
-          # def thing(), do: :thing
-
           def unquote(fun)(conn, params) do
-            # IO.puts(".............")
-            # IO.inspect(unquote(gate_body))
-            # IO.puts("waaaaaa")
+            args = unquote(margs)
+
+            missing_required_args = unquote(required_args) -- Map.keys(params)
+
             parsed_params = Map.take(params, unquote(arg_names))
-            # unquote(under_fun)(:ok, conn, parsed_params)
-            unquote(under_fun)(:ok, conn, parsed_params)
+
+            if missing_required_args == [] do
+              unquote(under_fun)(:ok, conn, parsed_params)
+            else
+              errors = Doorbell.format_errors(%{missing_required_args: missing_required_args})
+
+              conn
+              |> json(%{errors: errors})
+            end
           end
         end
-        |> IO.inspect()
 
-      # |> IO.inspect(label: "pre = quoted")
-      # |> Kernel.++(Enum.map(funs, &Doorbell.def_clause/1))
       {one, two, three ++ (funs |> Enum.reverse() |> Enum.map(&Doorbell.def_clause/1))}
     end
-    |> IO.inspect()
+    # |> IO.inspect()
     |> Enum.reverse()
+  end
+
+  def format_errors(errors) do
+    [] ++
+      Enum.map(errors[:missing_required_args] || [], &"required param \"#{&1}\" missing")
   end
 end
