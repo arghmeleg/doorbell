@@ -85,10 +85,10 @@ defmodule DoorbellTest do
       end
     end
 
-    %{response: response} = FakeController.get_stuff(%{}, %{username: "me"})
+    %{response: response} = FakeController.get_stuff(%{}, %{"username" => "me"})
     assert length(response[:errors]) == 1
 
-    %{response: response} = FakeController.get_stuff(%{}, %{username: "memeMEMEmeme"})
+    %{response: response} = FakeController.get_stuff(%{}, %{"username" => "memeMEMEmeme"})
     assert length(response[:errors]) == 1
   end
 
@@ -112,5 +112,107 @@ defmodule DoorbellTest do
     assert_raise RuntimeError, fn ->
       Code.eval_quoted(ast)
     end
+  end
+
+  test "truncate truncates long text" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @gate do
+        arg(:username, truncate: 5)
+      end
+
+      def get_stuff(conn, params) do
+        json(conn, params)
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{"username" => "memeMEMEmeme"})
+    assert response["username"] == "memeM"
+  end
+
+  test "preprocessors work" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @gate do
+        arg(:username, min: 3, pre: &preprocess/1)
+      end
+
+      def get_stuff(conn, params) do
+        json(conn, params)
+      end
+
+      defp preprocess(arg) do
+        {:ok, arg <> "a"}
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{"username" => "aa"})
+    assert response["username"] == "aaa"
+  end
+
+  test "postprocessors work" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @gate do
+        arg(:username, min: 3, post: &postprocess/1)
+      end
+
+      def get_stuff(conn, params) do
+        json(conn, params)
+      end
+
+      defp postprocess(arg) do
+        {:ok, arg <> "a"}
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{"username" => "aa"})
+    assert length(response[:errors]) == 1
+
+    %{response: response} = FakeController.get_stuff(%{}, %{"username" => "aaa"})
+    assert response["username"] == "aaaa"
+  end
+
+  test "strict mode errors with extra params" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @gate do
+        @strict true
+        arg(:username)
+      end
+
+      def get_stuff(conn, params) do
+        json(conn, params)
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{"password" => "123"})
+    assert length(response[:errors]) == 1
+  end
+
+  test "guards still work" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @gate do
+        arg(:username)
+      end
+
+      def get_stuff(conn, %{"username" => uname}) when uname == "admin" do
+        json(conn, %{cannot_be_admin: true})
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{"username" => "admin"})
+    assert response[:cannot_be_admin]
   end
 end

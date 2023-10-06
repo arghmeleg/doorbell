@@ -15,7 +15,7 @@ defmodule Doorbell do
     end
   end
 
-  @opts ~w(required min max)a
+  @opts ~w(required min max pre post)a
 
   defmacro arg(name, opts \\ []) do
     extra_opts = Keyword.drop(opts, @opts)
