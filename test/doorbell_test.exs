@@ -138,14 +138,14 @@ defmodule DoorbellTest do
       import DoorbellTest, only: [json: 2]
 
       @gate do
-        arg(:username, min: 3, pre: &preprocess/1)
+        arg(:username, min: 3, pre: {__MODULE__, :preprocess})
       end
 
       def get_stuff(conn, params) do
         json(conn, params)
       end
 
-      defp preprocess(arg) do
+      def preprocess(arg) do
         {:ok, arg <> "a"}
       end
     end
@@ -160,14 +160,14 @@ defmodule DoorbellTest do
       import DoorbellTest, only: [json: 2]
 
       @gate do
-        arg(:username, min: 3, post: &postprocess/1)
+        arg(:username, min: 3, post: {__MODULE__, :postprocess})
       end
 
       def get_stuff(conn, params) do
         json(conn, params)
       end
 
-      defp postprocess(arg) do
+      def postprocess(arg) do
         {:ok, arg <> "a"}
       end
     end

@@ -15,7 +15,7 @@ defmodule Doorbell do
     end
   end
 
-  @opts ~w(required min max pre post)a
+  @opts ~w(required min max pre post truncate)a
 
   defmacro arg(name, opts \\ []) do
     extra_opts = Keyword.drop(opts, @opts)
@@ -25,18 +25,12 @@ defmodule Doorbell do
         raise "Extra opts!"
       end
 
-      @arg %{name: unquote(name), required: unquote(opts)[:required], min: unquote(opts)[:min]}
+      @arg Map.merge(%{name: unquote(name)}, Enum.into(unquote(opts), %{}))
     end
   end
 
   def on_definition(env, :def, fun, [_conn, _params] = args, guards, body) do
-    IO.puts("------------on_definition-------------")
-    # IO.inspect(Map.keys(env), width: :infinity)
-    IO.inspect(fun)
-
     current_args = Module.get_attribute(env.module, :arg)
-
-    IO.inspect(current_args, label: "content args")
 
     {last_fun, last_args} =
       case Module.get_attribute(env.module, :gated_funs) do
@@ -49,8 +43,6 @@ defmodule Doorbell do
 
     cond do
       current_args != [] ->
-        # gate_args = Module.get_attribute(env.module, :arg)
-
         Module.put_attribute(
           env.module,
           :gated_funs,
@@ -61,8 +53,6 @@ defmodule Doorbell do
         Module.delete_attribute(env.module, :arg)
 
       fun == last_fun ->
-        IO.puts("SAME FUNNNNNNNN")
-
         Module.put_attribute(
           env.module,
           :gated_funs,
@@ -76,63 +66,34 @@ defmodule Doorbell do
 
   def on_definition(_env, _kind, _fun, _args, _guards, _body), do: nil
 
-  # https://stackoverflow.com/questions/42929471/elixir-macro-rewriting-module-methods-and-global-using-macro
-  def def_clause({env, _kind, fun, args, guard, body, _gate_args}) do
-    # IO.inspect(fun, label: "def clause fun")
-    # IO.inspect(args, label: "def clause args")
-    # IO.inspect(body, label: "def clause body")
+  def def_clause({_env, _kind, fun, args, guard, body, _gate_args}) do
     under_fun = :"_#{fun}"
 
-    case guard do
-      [] ->
-        quote do
-          # Kernel.def(Macro.escape(:"_#{unquote(fun)}"), unquote(args), unquote(body))
-          # Macro.escape(:"_#{unquote(fun)}")(unquote_splicing(args), unquote(body))
-          # def(Macro.escape(:"_#{unquote(fun)}")(unquote_splicing(args), unquote(body)))
-          # def(unquote(fun)(unquote_splicing(args)), unquote(body)) # works
-          # def(Macro.escape(:"_#{fun}")(unquote_splicing(args)), unquote(body))
-          defp(unquote(under_fun)(:ok, unquote_splicing(args)), unquote(body))
+    if guard == [] do
+      quote do
+        defp(unquote(under_fun)(:ok, unquote_splicing(args)), unquote(body))
+      end
+    else
+      quote do
+        Kernel.unquote(:defp)(
+          unquote(under_fun)(:ok, unquote_splicing(args)) when unquote_splicing(guard),
+          unquote(body)
+        )
+      end
+    end
+  end
 
-          defp unquote(under_fun)(:error, unquote_splicing(args)) do
-            json(unquote(hd(args)), %{error: true})
-          end
+  def def_error(fun, args) do
+    under_fun = :"_#{fun}"
 
-          # Kernel.def(:"_#{fun}", (unquote_splicing(args)), unquote(body))
-        end
-
-      _ ->
-        quote do
-          # def(
-          #   :"_#{fun}"(unquote_splicing(args)) when unquote_splicing(guard),
-          #   unquote(body)
-          # )
-        end
+    quote do
+      defp unquote(under_fun)(:error, unquote(hd(args))) do
+        json(unquote(hd(args)), %{error: true})
+      end
     end
   end
 
   defmacro before_compile(env) do
-    IO.puts("~~~~~~before_compile~~~~~~~~")
-
-    [
-      :function,
-      :functions,
-      :line,
-      :module,
-      :file,
-      :context,
-      :aliases,
-      :lexical_tracker,
-      :context_modules,
-      :macro_aliases,
-      :versioned_vars,
-      :tracers,
-      :requires,
-      :macros,
-      :__struct__
-    ]
-
-    # IO.inspect(env.module)
-
     gated_funs = Module.get_attribute(env.module, :gated_funs)
     Module.delete_attribute(env.module, :gated_funs)
 
@@ -142,11 +103,8 @@ defmodule Doorbell do
       end)
 
     for {fun, funs} <- grouped_gated_funs do
-      {env, _kind, _fun, args, guard, body, gate_args} = funs |> Enum.reverse() |> List.first()
+      {_env, _kind, _fun, args, _guard, _body, gate_args} = funs |> Enum.reverse() |> List.first()
       under_fun = :"_#{fun}"
-
-      arg_names = Enum.map(gate_args, &to_string(&1.name))
-      required_args = gate_args |> Enum.filter(& &1.required) |> Enum.map(&to_string(&1.name))
 
       margs = Macro.escape(gate_args)
 
@@ -157,26 +115,100 @@ defmodule Doorbell do
           def unquote(fun)(conn, params) do
             args = unquote(margs)
 
-            missing_required_args = unquote(required_args) -- Map.keys(params)
+            {parsed_params, errors} = Doorbell.parse_params(params, args)
 
-            parsed_params = Map.take(params, unquote(arg_names))
-
-            if missing_required_args == [] do
+            if errors == [] do
               unquote(under_fun)(:ok, conn, parsed_params)
             else
-              errors = Doorbell.format_errors(%{missing_required_args: missing_required_args})
-
               conn
               |> json(%{errors: errors})
             end
           end
         end
 
-      {one, two, three ++ (funs |> Enum.reverse() |> Enum.map(&Doorbell.def_clause/1))}
+      new_funs =
+        funs
+        |> Enum.reverse()
+        |> Enum.map(&Doorbell.def_clause/1)
+        |> Kernel.++([Doorbell.def_error(fun, args)])
+
+      {one, two, three ++ new_funs}
     end
-    # |> IO.inspect()
     |> Enum.reverse()
   end
+
+  def parse_params(original_params, args, errors \\ [], parsed_params \\ %{})
+  def parse_params(_original_params, [], errors, parsed_params), do: {parsed_params, errors}
+
+  def parse_params(original_params, [arg | args], errors, parsed_params) do
+    current_param = original_params[to_string(arg.name)]
+
+    {parsed_param, _arg, param_errors} =
+      {current_param, arg, []}
+      |> do_preprocessor()
+      |> parse_required()
+      |> parse_min()
+      |> parse_max()
+      |> do_truncate()
+      |> do_postprocessor()
+
+    new_parsed_params = Map.put(parsed_params, to_string(arg.name), parsed_param)
+    new_errors = errors ++ param_errors
+    parse_params(original_params, args, new_errors, new_parsed_params)
+  end
+
+  defp do_preprocessor({_p, a, _e} = t), do: run_processor(t, a[:pre])
+
+  defp parse_required({nil, %{required: true} = arg, errors}) do
+    {nil, arg, errors ++ ["Required param \"#{arg.name}\" missing"]}
+  end
+
+  defp parse_required(t), do: t
+
+  defp parse_min({param, %{min: min} = a, errors}) do
+    if min && param_size(param) < min do
+      {param, a, errors ++ ["\"#{a.name}\" too small"]}
+    else
+      {param, a, errors}
+    end
+  end
+
+  defp parse_min(t), do: t
+
+  defp parse_max({param, %{max: max} = a, errors}) do
+    if max && param_size(param) > max do
+      {param, a, errors ++ ["\"#{a.name}\" too big"]}
+    else
+      {param, a, errors}
+    end
+  end
+
+  defp parse_max(t), do: t
+
+  defp do_truncate({param, %{truncate: i} = a, e} = t) when is_integer(i) and i > 0 do
+    case param do
+      <<result::binary-size(i), _::binary>> -> {result, a, e}
+      _ -> t
+    end
+  end
+
+  defp do_truncate(t), do: t
+
+  defp do_postprocessor({_p, a, _e} = t), do: run_processor(t, a[:post])
+
+  defp run_processor(t, nil), do: t
+
+  defp run_processor({p, a, e}, {mod, fun}) do
+    case apply(mod, fun, [p]) do
+      {:ok, new_p} -> {new_p, a, e}
+      {:error, error} -> {p, a, e ++ List.wrap(error)}
+      _ -> raise "invalid processor response"
+    end
+  end
+
+  defp param_size(s) when is_binary(s), do: String.length(s)
+  defp param_size(i) when is_integer(i), do: i
+  defp param_size(_), do: nil
 
   def format_errors(errors) do
     [] ++
