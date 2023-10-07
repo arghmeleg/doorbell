@@ -1,6 +1,7 @@
 defmodule DoorbellTest do
   use ExUnit.Case
   doctest Doorbell
+  Code.put_compiler_option(:ignore_module_conflict, true)
 
   def json(conn, map) do
     Map.put(conn, :response, map)
@@ -160,7 +161,7 @@ defmodule DoorbellTest do
       import DoorbellTest, only: [json: 2]
 
       @gate do
-        arg(:username, min: 3, post: {__MODULE__, :postprocess})
+        arg(:username, max: 3, post: {__MODULE__, :postprocess})
       end
 
       def get_stuff(conn, params) do
@@ -172,7 +173,7 @@ defmodule DoorbellTest do
       end
     end
 
-    %{response: response} = FakeController.get_stuff(%{}, %{"username" => "aa"})
+    %{response: response} = FakeController.get_stuff(%{}, %{"username" => "aaaa"})
     assert length(response[:errors]) == 1
 
     %{response: response} = FakeController.get_stuff(%{}, %{"username" => "aaa"})

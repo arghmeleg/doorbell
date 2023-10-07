@@ -31,11 +31,12 @@ defmodule Doorbell do
 
   def on_definition(env, :def, fun, [_conn, _params] = args, guards, body) do
     current_args = Module.get_attribute(env.module, :arg)
+    opts = %{args: current_args, strict: Module.get_attribute(env.module, :strict)}
 
-    {last_fun, last_args} =
+    {last_fun, last_opts} =
       case Module.get_attribute(env.module, :gated_funs) do
-        [{_env, _def, last_fun, _args, _guards, _body, last_args} | _] ->
-          {last_fun, last_args}
+        [{_env, _def, last_fun, _args, _guards, _body, last_opts} | _] ->
+          {last_fun, last_opts}
 
         _ ->
           {nil, nil}
@@ -46,17 +47,18 @@ defmodule Doorbell do
         Module.put_attribute(
           env.module,
           :gated_funs,
-          {env, :def, fun, args, guards, body, current_args}
+          {env, :def, fun, args, guards, body, opts}
         )
 
         Module.delete_attribute(env.module, :gate)
         Module.delete_attribute(env.module, :arg)
+        Module.delete_attribute(env.module, :strict)
 
       fun == last_fun ->
         Module.put_attribute(
           env.module,
           :gated_funs,
-          {env, :def, fun, args, guards, body, last_args}
+          {env, :def, fun, args, guards, body, last_opts}
         )
 
       true ->
@@ -66,7 +68,7 @@ defmodule Doorbell do
 
   def on_definition(_env, _kind, _fun, _args, _guards, _body), do: nil
 
-  def def_clause({_env, _kind, fun, args, guard, body, _gate_args}) do
+  def def_clause({_env, _kind, fun, args, guard, body, _opts}) do
     under_fun = :"_#{fun}"
 
     if guard == [] do
@@ -98,15 +100,18 @@ defmodule Doorbell do
     Module.delete_attribute(env.module, :gated_funs)
 
     grouped_gated_funs =
-      Enum.group_by(gated_funs, fn {_env, _kind, fun, _args, _guards, _body, _gate_body} ->
+      Enum.group_by(gated_funs, fn {_env, _kind, fun, _args, _guards, _body, _opts} ->
         fun
       end)
 
     for {fun, funs} <- grouped_gated_funs do
-      {_env, _kind, _fun, args, _guard, _body, gate_args} = funs |> Enum.reverse() |> List.first()
+      {_env, _kind, _fun, args, _guard, _body, opts} =
+        funs |> Enum.reverse() |> List.first()
+
       under_fun = :"_#{fun}"
 
-      margs = Macro.escape(gate_args)
+      margs = Macro.escape(opts.args)
+      marg_names = opts.args |> Enum.map(&to_string(&1.name)) |> Macro.escape()
 
       {one, two, three} =
         quote do
@@ -114,8 +119,16 @@ defmodule Doorbell do
 
           def unquote(fun)(conn, params) do
             args = unquote(margs)
-
+            arg_names = unquote(marg_names)
             {parsed_params, errors} = Doorbell.parse_params(params, args)
+
+            errors =
+              if unquote(opts.strict) do
+                extra_params = Map.keys(params) -- arg_names
+                if extra_params == [], do: [], else: errors ++ ["Extra params"]
+              else
+                errors
+              end
 
             if errors == [] do
               unquote(under_fun)(:ok, conn, parsed_params)
