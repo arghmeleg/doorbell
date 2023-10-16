@@ -4,7 +4,7 @@ defmodule Doorbell do
   """
 
   @arg_opts ~w(required min max pre post truncate)a
-  @use_opts ~w(error)a
+  @use_opts ~w(error strict)a
 
   defmacro __using__(opts \\ []) do
     quote do
@@ -36,7 +36,15 @@ defmodule Doorbell do
 
   def on_definition(env, :def, fun, [_conn, _params] = args, guards, body) do
     current_args = Module.get_attribute(env.module, :arg)
-    opts = %{args: current_args, strict: Module.get_attribute(env.module, :strict)}
+
+    opts =
+      Keyword.merge(
+        Module.get_attribute(env.module, :doorbell_options),
+        [args: current_args, strict: Module.get_attribute(env.module, :strict)],
+        fn _k, v1, v2 ->
+          if is_nil(v2), do: v1, else: v2
+        end
+      )
 
     {last_fun, last_opts} =
       case Module.get_attribute(env.module, :gated_funs) do
@@ -113,9 +121,8 @@ defmodule Doorbell do
       {_env, _kind, _fun, args, _guard, _body, opts} = funs |> Enum.reverse() |> List.first()
 
       under_fun = :"_#{fun}"
-
-      margs = Macro.escape(opts.args)
-      marg_names = opts.args |> Enum.map(&to_string(&1.name)) |> Macro.escape()
+      margs = Macro.escape(opts[:args])
+      marg_names = opts[:args] |> Enum.map(&to_string(&1.name)) |> Macro.escape()
 
       {one, two, three} =
         quote do
@@ -124,14 +131,14 @@ defmodule Doorbell do
           def unquote(fun)(conn, params) do
             args = unquote(margs)
             arg_names = unquote(marg_names)
-            {parsed_params, errors} = Doorbell.parse_params(params, args)
+            {parsed_params, param_errors} = Doorbell.parse_params(params, args)
 
             errors =
-              if unquote(opts.strict) do
+              if unquote(opts[:strict]) do
                 extra_params = Map.keys(params) -- arg_names
-                if extra_params == [], do: [], else: errors ++ ["Extra params"]
+                if extra_params == [], do: [], else: param_errors ++ ["Extra params"]
               else
-                errors
+                param_errors
               end
 
             if errors == [] do
