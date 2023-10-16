@@ -216,4 +216,68 @@ defmodule DoorbellTest do
     %{response: response} = FakeController.get_stuff(%{}, %{"username" => "admin"})
     assert response[:cannot_be_admin]
   end
+
+  test "customizeable error function with atom function name" do
+    defmodule FakeController do
+      use Doorbell, error: :my_error
+      import DoorbellTest, only: [json: 2]
+
+      @gate do
+        arg(:username, required: true)
+      end
+
+      def get_stuff(conn, params) do
+        raise "This should not get called"
+        json(conn, params)
+      end
+
+      def my_error(_conn, _params, errors) do
+        {:my_custom_error, errors}
+      end
+    end
+
+    assert {:my_custom_error, errors} = FakeController.get_stuff(%{}, %{"ubernumb" => "damin"})
+    assert length(errors) == 1
+  end
+
+  test "customizeable error function with {mod, fun}" do
+    defmodule FakeController do
+      use Doorbell, error: {__MODULE__, :my_error}
+      import DoorbellTest, only: [json: 2]
+
+      @gate do
+        arg(:username, required: true)
+      end
+
+      def get_stuff(conn, params) do
+        raise "This should not get called"
+        json(conn, params)
+      end
+
+      def my_error(_conn, _params, errors) do
+        {:my_custom_error, errors}
+      end
+    end
+
+    assert {:my_custom_error, errors} = FakeController.get_stuff(%{}, %{"ubernumb" => "damin"})
+    assert length(errors) == 1
+  end
+
+  test "strict mode is globally configurable" do
+    defmodule FakeController do
+      use Doorbell, strict: true
+      import DoorbellTest, only: [json: 2]
+
+      @gate do
+        arg(:username)
+      end
+
+      def get_stuff(conn, params) do
+        json(conn, params)
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{"password" => "123"})
+    assert length(response[:errors]) == 1
+  end
 end

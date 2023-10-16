@@ -3,8 +3,15 @@ defmodule Doorbell do
   Documentation for `Doorbell`.
   """
 
-  defmacro __using__(_opts \\ []) do
+  @arg_opts ~w(required min max pre post truncate)a
+  @use_opts ~w(error)a
+
+  defmacro __using__(opts \\ []) do
     quote do
+      {valid_opts, invalid_opts} = Keyword.split(unquote(opts), unquote(@use_opts))
+      if invalid_opts != [], do: raise("Invalid options: #{inspect(invalid_opts)}")
+      @doorbell_options valid_opts
+
       import Doorbell, only: [arg: 1, arg: 2]
       @on_definition {Doorbell, :on_definition}
       @before_compile {Doorbell, :before_compile}
@@ -15,10 +22,8 @@ defmodule Doorbell do
     end
   end
 
-  @opts ~w(required min max pre post truncate)a
-
   defmacro arg(name, opts \\ []) do
-    extra_opts = Keyword.drop(opts, @opts)
+    extra_opts = Keyword.drop(opts, @arg_opts)
 
     quote do
       if unquote(extra_opts) != [] do
@@ -105,8 +110,7 @@ defmodule Doorbell do
       end)
 
     for {fun, funs} <- grouped_gated_funs do
-      {_env, _kind, _fun, args, _guard, _body, opts} =
-        funs |> Enum.reverse() |> List.first()
+      {_env, _kind, _fun, args, _guard, _body, opts} = funs |> Enum.reverse() |> List.first()
 
       under_fun = :"_#{fun}"
 
@@ -133,8 +137,16 @@ defmodule Doorbell do
             if errors == [] do
               unquote(under_fun)(:ok, conn, parsed_params)
             else
-              conn
-              |> json(%{errors: errors})
+              case @doorbell_options[:error] do
+                err_fun when is_atom(err_fun) and not is_nil(err_fun) ->
+                  apply(__MODULE__, err_fun, [conn, params, errors])
+
+                {err_mod, err_fun} ->
+                  apply(err_mod, err_fun, [conn, params, errors])
+
+                _ ->
+                  json(conn, %{errors: errors})
+              end
             end
           end
         end
