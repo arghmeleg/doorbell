@@ -12,7 +12,7 @@ defmodule DoorbellTest do
       use Doorbell
       import DoorbellTest, only: [json: 2]
 
-      @gate do
+      @endpoint do
         arg(:food)
       end
 
@@ -40,7 +40,7 @@ defmodule DoorbellTest do
       use Doorbell
       import DoorbellTest, only: [json: 2]
 
-      @gate do
+      @endpoint do
         arg(:user_id)
       end
 
@@ -58,7 +58,7 @@ defmodule DoorbellTest do
       use Doorbell
       import DoorbellTest, only: [json: 2]
 
-      @gate do
+      @endpoint do
         arg(:user_id, required: true)
       end
 
@@ -77,7 +77,7 @@ defmodule DoorbellTest do
       use Doorbell
       import DoorbellTest, only: [json: 2]
 
-      @gate do
+      @endpoint do
         arg(:username, min: 3, max: 10)
       end
 
@@ -100,7 +100,7 @@ defmodule DoorbellTest do
           use Doorbell
           import DoorbellTest, only: [json: 2]
 
-          @gate do
+          @endpoint do
             arg(:username, porcupine: 3)
           end
 
@@ -120,7 +120,7 @@ defmodule DoorbellTest do
       use Doorbell
       import DoorbellTest, only: [json: 2]
 
-      @gate do
+      @endpoint do
         arg(:username, truncate: 5)
       end
 
@@ -138,7 +138,7 @@ defmodule DoorbellTest do
       use Doorbell
       import DoorbellTest, only: [json: 2]
 
-      @gate do
+      @endpoint do
         arg(:username, min: 3, pre: {__MODULE__, :preprocess})
       end
 
@@ -160,7 +160,7 @@ defmodule DoorbellTest do
       use Doorbell
       import DoorbellTest, only: [json: 2]
 
-      @gate do
+      @endpoint do
         arg(:username, max: 3, post: {__MODULE__, :postprocess})
       end
 
@@ -185,7 +185,7 @@ defmodule DoorbellTest do
       use Doorbell
       import DoorbellTest, only: [json: 2]
 
-      @gate do
+      @endpoint do
         @strict true
         arg(:username)
       end
@@ -204,7 +204,7 @@ defmodule DoorbellTest do
       use Doorbell
       import DoorbellTest, only: [json: 2]
 
-      @gate do
+      @endpoint do
         arg(:username)
       end
 
@@ -222,7 +222,7 @@ defmodule DoorbellTest do
       use Doorbell, error: :my_error
       import DoorbellTest, only: [json: 2]
 
-      @gate do
+      @endpoint do
         arg(:username, required: true)
       end
 
@@ -245,7 +245,7 @@ defmodule DoorbellTest do
       use Doorbell, error: {__MODULE__, :my_error}
       import DoorbellTest, only: [json: 2]
 
-      @gate do
+      @endpoint do
         arg(:username, required: true)
       end
 
@@ -268,7 +268,7 @@ defmodule DoorbellTest do
       use Doorbell, strict: true
       import DoorbellTest, only: [json: 2]
 
-      @gate do
+      @endpoint do
         arg(:username)
       end
 

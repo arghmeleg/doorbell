@@ -16,9 +16,9 @@ defmodule Doorbell do
       @on_definition {Doorbell, :on_definition}
       @before_compile {Doorbell, :before_compile}
 
-      Module.register_attribute(__MODULE__, :gate, accumulate: true)
+      Module.register_attribute(__MODULE__, :endpoint, accumulate: true)
       Module.register_attribute(__MODULE__, :arg, accumulate: true)
-      Module.register_attribute(__MODULE__, :gated_funs, accumulate: true)
+      Module.register_attribute(__MODULE__, :endpointed_funs, accumulate: true)
     end
   end
 
@@ -47,7 +47,7 @@ defmodule Doorbell do
       )
 
     {last_fun, last_opts} =
-      case Module.get_attribute(env.module, :gated_funs) do
+      case Module.get_attribute(env.module, :endpointed_funs) do
         [{_env, _def, last_fun, _args, _guards, _body, last_opts} | _] ->
           {last_fun, last_opts}
 
@@ -59,18 +59,18 @@ defmodule Doorbell do
       current_args != [] ->
         Module.put_attribute(
           env.module,
-          :gated_funs,
+          :endpointed_funs,
           {env, :def, fun, args, guards, body, opts}
         )
 
-        Module.delete_attribute(env.module, :gate)
+        Module.delete_attribute(env.module, :endpoint)
         Module.delete_attribute(env.module, :arg)
         Module.delete_attribute(env.module, :strict)
 
       fun == last_fun ->
         Module.put_attribute(
           env.module,
-          :gated_funs,
+          :endpointed_funs,
           {env, :def, fun, args, guards, body, last_opts}
         )
 
@@ -99,15 +99,15 @@ defmodule Doorbell do
   end
 
   defmacro before_compile(env) do
-    gated_funs = Module.get_attribute(env.module, :gated_funs)
-    Module.delete_attribute(env.module, :gated_funs)
+    endpointed_funs = Module.get_attribute(env.module, :endpointed_funs)
+    Module.delete_attribute(env.module, :endpointed_funs)
 
-    grouped_gated_funs =
-      Enum.group_by(gated_funs, fn {_env, _kind, fun, _args, _guards, _body, _opts} ->
+    grouped_endpointed_funs =
+      Enum.group_by(endpointed_funs, fn {_env, _kind, fun, _args, _guards, _body, _opts} ->
         fun
       end)
 
-    for {fun, funs} <- grouped_gated_funs do
+    for {fun, funs} <- grouped_endpointed_funs do
       {_env, _kind, _fun, _args, _guard, _body, opts} = funs |> Enum.reverse() |> List.first()
 
       under_fun = :"_#{fun}"
