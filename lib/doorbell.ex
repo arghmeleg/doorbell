@@ -81,7 +81,7 @@ defmodule Doorbell do
 
   def on_definition(_env, _kind, _fun, _args, _guards, _body), do: nil
 
-  def def_clause({_env, _kind, fun, args, guard, body, _opts}) do
+  defp def_clause({_env, _kind, fun, args, guard, body, _opts}) do
     under_fun = :"_#{fun}"
 
     if guard == [] do
@@ -98,16 +98,6 @@ defmodule Doorbell do
     end
   end
 
-  def def_error(fun, args) do
-    under_fun = :"_#{fun}"
-
-    quote do
-      defp unquote(under_fun)(:error, unquote(hd(args))) do
-        json(unquote(hd(args)), %{error: true})
-      end
-    end
-  end
-
   defmacro before_compile(env) do
     gated_funs = Module.get_attribute(env.module, :gated_funs)
     Module.delete_attribute(env.module, :gated_funs)
@@ -118,61 +108,74 @@ defmodule Doorbell do
       end)
 
     for {fun, funs} <- grouped_gated_funs do
-      {_env, _kind, _fun, args, _guard, _body, opts} = funs |> Enum.reverse() |> List.first()
+      {_env, _kind, _fun, _args, _guard, _body, opts} = funs |> Enum.reverse() |> List.first()
 
       under_fun = :"_#{fun}"
-      margs = Macro.escape(opts[:args])
-      marg_names = opts[:args] |> Enum.map(&to_string(&1.name)) |> Macro.escape()
+
+      mopts = Macro.escape(opts)
 
       {one, two, three} =
         quote do
           defoverridable [{unquote(fun), 2}]
 
           def unquote(fun)(conn, params) do
-            args = unquote(margs)
-            arg_names = unquote(marg_names)
-            {parsed_params, param_errors} = Doorbell.parse_params(params, args)
-
-            errors =
-              if unquote(opts[:strict]) do
-                extra_params = Map.keys(params) -- arg_names
-                if extra_params == [], do: [], else: param_errors ++ ["Extra params"]
-              else
-                param_errors
+            Doorbell.run(
+              __MODULE__,
+              conn,
+              params,
+              unquote(mopts),
+              fn parsed_params ->
+                unquote(under_fun)(:ok, conn, parsed_params)
+              end,
+              fn errors ->
+                json(conn, %{errors: errors})
               end
-
-            if errors == [] do
-              unquote(under_fun)(:ok, conn, parsed_params)
-            else
-              case @doorbell_options[:error] do
-                err_fun when is_atom(err_fun) and not is_nil(err_fun) ->
-                  apply(__MODULE__, err_fun, [conn, params, errors])
-
-                {err_mod, err_fun} ->
-                  apply(err_mod, err_fun, [conn, params, errors])
-
-                _ ->
-                  json(conn, %{errors: errors})
-              end
-            end
+            )
           end
         end
 
       new_funs =
         funs
         |> Enum.reverse()
-        |> Enum.map(&Doorbell.def_clause/1)
-        |> Kernel.++([Doorbell.def_error(fun, args)])
+        |> Enum.map(&def_clause/1)
 
       {one, two, three ++ new_funs}
     end
     |> Enum.reverse()
   end
 
-  def parse_params(original_params, args, errors \\ [], parsed_params \\ %{})
-  def parse_params(_original_params, [], errors, parsed_params), do: {parsed_params, errors}
+  def run(mod, conn, params, opts, do_fun, else_fun) do
+    arg_names = Enum.map(opts[:args], &to_string(&1.name))
+    {parsed_params, param_errors} = parse_params(params, opts[:args])
 
-  def parse_params(original_params, [arg | args], errors, parsed_params) do
+    errors =
+      if opts[:strict] do
+        extra_params = Map.keys(params) -- arg_names
+        if extra_params == [], do: [], else: param_errors ++ ["Extra params"]
+      else
+        param_errors
+      end
+
+    if errors == [] do
+      do_fun.(parsed_params)
+    else
+      case opts[:error] do
+        err_fun when is_atom(err_fun) and not is_nil(err_fun) ->
+          apply(mod, err_fun, [conn, params, errors])
+
+        {err_mod, err_fun} ->
+          apply(err_mod, err_fun, [conn, params, errors])
+
+        _ ->
+          else_fun.(errors)
+      end
+    end
+  end
+
+  defp parse_params(original_params, args, errors \\ [], parsed_params \\ %{})
+  defp parse_params(_original_params, [], errors, parsed_params), do: {parsed_params, errors}
+
+  defp parse_params(original_params, [arg | args], errors, parsed_params) do
     current_param = original_params[to_string(arg.name)]
 
     {parsed_param, _arg, param_errors} =
@@ -241,9 +244,4 @@ defmodule Doorbell do
   defp param_size(s) when is_binary(s), do: String.length(s)
   defp param_size(i) when is_integer(i), do: i
   defp param_size(_), do: nil
-
-  def format_errors(errors) do
-    [] ++
-      Enum.map(errors[:missing_required_args] || [], &"required param \"#{&1}\" missing")
-  end
 end
