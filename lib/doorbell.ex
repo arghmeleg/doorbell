@@ -5,6 +5,7 @@ defmodule Doorbell do
 
   @arg_opts ~w(required min max pre post truncate)a
   @use_opts ~w(error strict)a
+  @valid_types ~w(string integer)a
 
   defmacro __using__(opts \\ []) do
     quote do
@@ -12,7 +13,7 @@ defmodule Doorbell do
       if invalid_opts != [], do: raise("Invalid options: #{inspect(invalid_opts)}")
       @doorbell_options valid_opts
 
-      import Doorbell, only: [arg: 1, arg: 2]
+      import Doorbell, only: [arg: 1, arg: 2, arg: 3]
       @on_definition {Doorbell, :on_definition}
       @before_compile {Doorbell, :before_compile}
 
@@ -22,15 +23,38 @@ defmodule Doorbell do
     end
   end
 
-  defmacro arg(name, opts \\ []) do
+  defmacro arg(name, type, opts) do
     extra_opts = Keyword.drop(opts, @arg_opts)
+    is_valid_type = type in @valid_types
 
     quote do
       if unquote(extra_opts) != [] do
-        raise "Extra opts!"
+        raise "Extra opts: #{inspect(unquote(extra_opts))}"
       end
 
-      @arg Map.merge(%{name: unquote(name)}, Enum.into(unquote(opts), %{}))
+      if not unquote(is_valid_type) do
+        raise "Invalid type: #{inspect(unquote(type))}"
+      end
+
+      @arg Map.merge(%{name: unquote(name), type: unquote(type)}, Enum.into(unquote(opts), %{}))
+    end
+  end
+
+  defmacro arg(name) do
+    quote do
+      arg(unquote(name), :string, [])
+    end
+  end
+
+  defmacro arg(name, type) when is_atom(type) do
+    quote do
+      arg(unquote(name), unquote(type), [])
+    end
+  end
+
+  defmacro arg(name, opts) do
+    quote do
+      arg(unquote(name), :string, unquote(opts))
     end
   end
 
@@ -181,6 +205,7 @@ defmodule Doorbell do
     {parsed_param, _arg, param_errors} =
       {current_param, arg, []}
       |> do_preprocessor()
+      |> parse_type()
       |> parse_required()
       |> parse_min()
       |> parse_max()
@@ -193,6 +218,15 @@ defmodule Doorbell do
   end
 
   defp do_preprocessor({_p, a, _e} = t), do: run_processor(t, a[:pre])
+
+  defp parse_type({param, %{type: :integer} = args, errors}) do
+    case Integer.parse(param) do
+      {int, _} -> {int, args, errors}
+      _ -> {nil, args, errors}
+    end
+  end
+
+  defp parse_type(tuple), do: tuple
 
   defp parse_required({nil, %{required: true} = arg, errors}) do
     {nil, arg, errors ++ ["Required param \"#{arg.name}\" missing"]}

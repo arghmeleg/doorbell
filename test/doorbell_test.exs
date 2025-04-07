@@ -280,4 +280,23 @@ defmodule DoorbellTest do
     %{response: response} = FakeController.get_stuff(%{}, %{"password" => "123"})
     assert length(response[:errors]) == 1
   end
+
+  test "can parse integers" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @endpoint do
+        arg(:page, :integer)
+      end
+
+      def get_stuff(conn, params) do
+        assert params["page"] == 123
+        json(conn, params)
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{"page" => "123"})
+    refute response[:errors]
+  end
 end
