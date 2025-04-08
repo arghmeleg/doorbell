@@ -299,4 +299,23 @@ defmodule DoorbellTest do
     %{response: response} = FakeController.get_stuff(%{}, %{"page" => "123"})
     refute response[:errors]
   end
+
+  test "omits omitted params" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @endpoint do
+        arg(:page, :integer)
+      end
+
+      def get_stuff(conn, params) do
+        refute Map.has_key?(params, "page")
+        json(conn, params)
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{})
+    refute response[:errors]
+  end
 end

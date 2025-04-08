@@ -200,6 +200,14 @@ defmodule Doorbell do
   defp parse_params(_original_params, [], errors, parsed_params), do: {parsed_params, errors}
 
   defp parse_params(original_params, [arg | args], errors, parsed_params) do
+    if arg[:required] || Map.has_key?(original_params, to_string(arg.name)) do
+      do_parse_params(original_params, arg, args, errors, parsed_params)
+    else
+      parse_params(original_params, args, errors, parsed_params)
+    end
+  end
+
+  defp do_parse_params(original_params, arg, args, errors, parsed_params) do
     current_param = original_params[to_string(arg.name)]
 
     {parsed_param, _arg, param_errors} =
