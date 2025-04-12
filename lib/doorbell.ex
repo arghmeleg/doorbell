@@ -3,7 +3,7 @@ defmodule Doorbell do
   Documentation for `Doorbell`.
   """
 
-  @arg_opts ~w(required min max pre post truncate)a
+  @arg_opts ~w(required min max pre post truncate as)a
   @use_opts ~w(error strict)a
   @valid_types ~w(string integer)a
 
@@ -200,7 +200,7 @@ defmodule Doorbell do
   defp parse_params(_original_params, [], errors, parsed_params), do: {parsed_params, errors}
 
   defp parse_params(original_params, [arg | args], errors, parsed_params) do
-    if arg[:required] || Map.has_key?(original_params, to_string(arg.name)) do
+    if arg[:required] || Map.has_key?(original_params, arg_name(arg)) do
       do_parse_params(original_params, arg, args, errors, parsed_params)
     else
       parse_params(original_params, args, errors, parsed_params)
@@ -208,7 +208,7 @@ defmodule Doorbell do
   end
 
   defp do_parse_params(original_params, arg, args, errors, parsed_params) do
-    current_param = original_params[to_string(arg.name)]
+    current_param = original_params[arg_name(arg)]
 
     {parsed_param, _arg, param_errors} =
       {current_param, arg, []}
@@ -223,6 +223,12 @@ defmodule Doorbell do
     new_parsed_params = Map.put(parsed_params, to_string(arg.name), parsed_param)
     new_errors = errors ++ param_errors
     parse_params(original_params, args, new_errors, new_parsed_params)
+  end
+
+  defp arg_name(arg) do
+    arg
+    |> Map.get(:as, arg.name)
+    |> to_string()
   end
 
   defp do_preprocessor({_p, a, _e} = t), do: run_processor(t, a[:pre])

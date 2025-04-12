@@ -318,4 +318,23 @@ defmodule DoorbellTest do
     %{response: response} = FakeController.get_stuff(%{}, %{})
     refute response[:errors]
   end
+
+  test "allows args to be renamed" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @endpoint do
+        arg(:page, :integer, as: "p")
+      end
+
+      def get_stuff(conn, params) do
+        assert params["page"] == 42
+        json(conn, params)
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{"p" => "42", "page" => "33"})
+    refute response[:errors]
+  end
 end
