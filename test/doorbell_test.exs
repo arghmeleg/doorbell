@@ -217,9 +217,9 @@ defmodule DoorbellTest do
     assert response[:cannot_be_admin]
   end
 
-  test "customizeable error function with atom function name" do
+  test "customizeable on_error function with atom function name" do
     defmodule FakeController do
-      use Doorbell, error: :my_error
+      use Doorbell, on_error: :my_error
       import DoorbellTest, only: [json: 2]
 
       @endpoint do
@@ -240,9 +240,9 @@ defmodule DoorbellTest do
     assert length(errors) == 1
   end
 
-  test "customizeable error function with {mod, fun}" do
+  test "customizeable on_error function with {mod, fun}" do
     defmodule FakeController do
-      use Doorbell, error: {__MODULE__, :my_error}
+      use Doorbell, on_error: {__MODULE__, :my_error}
       import DoorbellTest, only: [json: 2]
 
       @endpoint do
@@ -273,6 +273,7 @@ defmodule DoorbellTest do
       end
 
       def get_stuff(conn, params) do
+        assert false
         json(conn, params)
       end
     end
@@ -320,6 +321,25 @@ defmodule DoorbellTest do
   end
 
   test "allows args to be renamed" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @endpoint do
+        arg(:page, :integer, as: "p")
+      end
+
+      def get_stuff(conn, params) do
+        assert params["page"] == 42
+        json(conn, params)
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{"p" => "42", "page" => "33"})
+    refute response[:errors]
+  end
+
+  test "atomize" do
     defmodule FakeController do
       use Doorbell
       import DoorbellTest, only: [json: 2]

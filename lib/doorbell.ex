@@ -4,7 +4,7 @@ defmodule Doorbell do
   """
 
   @arg_opts ~w(required min max pre post truncate as)a
-  @use_opts ~w(error strict)a
+  @use_opts ~w(on_error strict)a
   @valid_types ~w(string integer)a
 
   defmacro __using__(opts \\ []) do
@@ -183,7 +183,7 @@ defmodule Doorbell do
     if errors == [] do
       do_fun.(parsed_params)
     else
-      case opts[:error] do
+      case opts[:on_error] do
         err_fun when is_atom(err_fun) and not is_nil(err_fun) ->
           apply(mod, err_fun, [conn, params, errors])
 
