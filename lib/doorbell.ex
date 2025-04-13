@@ -3,8 +3,8 @@ defmodule Doorbell do
   Documentation for `Doorbell`.
   """
 
-  @arg_opts ~w(required min max pre post truncate as)a
-  @use_opts ~w(on_error strict)a
+  @arg_opts ~w(required min max pre post truncate as atomize)a
+  @use_opts ~w(on_error strict atomize)a
   @valid_types ~w(string integer)a
 
   defmacro __using__(opts \\ []) do
@@ -64,7 +64,11 @@ defmodule Doorbell do
     opts =
       Keyword.merge(
         Module.get_attribute(env.module, :doorbell_options),
-        [args: current_args, strict: Module.get_attribute(env.module, :strict)],
+        [
+          args: current_args,
+          strict: Module.get_attribute(env.module, :strict),
+          atomize: Module.get_attribute(env.module, :atomize)
+        ],
         fn _k, v1, v2 ->
           if is_nil(v2), do: v1, else: v2
         end
@@ -90,6 +94,7 @@ defmodule Doorbell do
         Module.delete_attribute(env.module, :endpoint)
         Module.delete_attribute(env.module, :arg)
         Module.delete_attribute(env.module, :strict)
+        Module.delete_attribute(env.module, :atomize)
 
       fun == last_fun ->
         Module.put_attribute(
@@ -170,7 +175,7 @@ defmodule Doorbell do
 
   def run(mod, conn, params, opts, do_fun, else_fun) do
     arg_names = Enum.map(opts[:args], &to_string(&1.name))
-    {parsed_params, param_errors} = parse_params(params, opts[:args])
+    {parsed_params, param_errors} = parse_params(params, opts[:args], opts)
 
     errors =
       if opts[:strict] do
@@ -196,18 +201,20 @@ defmodule Doorbell do
     end
   end
 
-  defp parse_params(original_params, args, errors \\ [], parsed_params \\ %{})
-  defp parse_params(_original_params, [], errors, parsed_params), do: {parsed_params, errors}
+  defp parse_params(original_params, args, opts, errors \\ [], parsed_params \\ %{})
 
-  defp parse_params(original_params, [arg | args], errors, parsed_params) do
+  defp parse_params(_original_params, [], _opts, errors, parsed_params),
+    do: {parsed_params, errors}
+
+  defp parse_params(original_params, [arg | args], opts, errors, parsed_params) do
     if arg[:required] || Map.has_key?(original_params, arg_name(arg)) do
-      do_parse_params(original_params, arg, args, errors, parsed_params)
+      do_parse_params(original_params, arg, args, opts, errors, parsed_params)
     else
-      parse_params(original_params, args, errors, parsed_params)
+      parse_params(original_params, args, opts, errors, parsed_params)
     end
   end
 
-  defp do_parse_params(original_params, arg, args, errors, parsed_params) do
+  defp do_parse_params(original_params, arg, args, opts, errors, parsed_params) do
     current_param = original_params[arg_name(arg)]
 
     {parsed_param, _arg, param_errors} =
@@ -220,9 +227,16 @@ defmodule Doorbell do
       |> do_truncate()
       |> do_postprocessor()
 
-    new_parsed_params = Map.put(parsed_params, to_string(arg.name), parsed_param)
+    key =
+      if arg[:atomize] || (is_nil(arg[:atomize]) && opts[:atomize]) do
+        arg.name
+      else
+        to_string(arg.name)
+      end
+
+    new_parsed_params = Map.put(parsed_params, key, parsed_param)
     new_errors = errors ++ param_errors
-    parse_params(original_params, args, new_errors, new_parsed_params)
+    parse_params(original_params, args, opts, new_errors, new_parsed_params)
   end
 
   defp arg_name(arg) do

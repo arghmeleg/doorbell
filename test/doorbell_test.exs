@@ -339,22 +339,64 @@ defmodule DoorbellTest do
     refute response[:errors]
   end
 
-  test "atomize" do
+  test "atomize with use" do
+    defmodule FakeController do
+      use Doorbell, atomize: true
+      import DoorbellTest, only: [json: 2]
+
+      @endpoint do
+        arg(:page, :integer)
+      end
+
+      def get_stuff(conn, params) do
+        assert params[:page] == 42
+        refute params["page"]
+        json(conn, params)
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{"page" => "42"})
+    refute response[:errors]
+  end
+
+  test "atomize with attribute" do
     defmodule FakeController do
       use Doorbell
       import DoorbellTest, only: [json: 2]
 
       @endpoint do
-        arg(:page, :integer, as: "p")
+        @atomize true
+        arg(:page, :integer)
+        arg(:limit, :integer)
       end
 
       def get_stuff(conn, params) do
-        assert params["page"] == 42
+        assert params[:page] == 42
+        assert params[:limit] == 100
         json(conn, params)
       end
     end
 
-    %{response: response} = FakeController.get_stuff(%{}, %{"p" => "42", "page" => "33"})
+    %{response: response} = FakeController.get_stuff(%{}, %{"page" => "42", "limit" => "100"})
+    refute response[:errors]
+  end
+
+  test "atomize with arg" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @endpoint do
+        arg(:page, :integer, atomize: true)
+      end
+
+      def get_stuff(conn, params) do
+        assert params[:page] == 42
+        json(conn, params)
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{"page" => "42"})
     refute response[:errors]
   end
 end
