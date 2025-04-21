@@ -3,7 +3,7 @@ defmodule Doorbell do
   Documentation for `Doorbell`.
   """
 
-  @arg_opts ~w(required min max pre post truncate as atomize)a
+  @arg_opts ~w(required min max pre post truncate as atomize default)a
   @use_opts ~w(on_error strict atomize)a
   @valid_types ~w(string integer)a
 
@@ -225,6 +225,7 @@ defmodule Doorbell do
       |> parse_min()
       |> parse_max()
       |> do_truncate()
+      |> set_default_if_nil()
       |> do_postprocessor()
 
     key =
@@ -290,6 +291,12 @@ defmodule Doorbell do
   end
 
   defp do_truncate(t), do: t
+
+  defp set_default_if_nil({nil, %{default: default} = opt, e}) do
+    {default, opt, e}
+  end
+
+  defp set_default_if_nil(t), do: t
 
   defp do_postprocessor({_p, a, _e} = t), do: run_processor(t, a[:post])
 
