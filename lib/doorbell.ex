@@ -207,7 +207,7 @@ defmodule Doorbell do
     do: {parsed_params, errors}
 
   defp parse_params(original_params, [arg | args], opts, errors, parsed_params) do
-    if arg[:required] || Map.has_key?(original_params, arg_name(arg)) do
+    if arg[:required] || arg[:default] || Map.has_key?(original_params, arg_name(arg)) do
       do_parse_params(original_params, arg, args, opts, errors, parsed_params)
     else
       parse_params(original_params, args, opts, errors, parsed_params)
@@ -249,7 +249,10 @@ defmodule Doorbell do
   defp do_preprocessor({_p, a, _e} = t), do: run_processor(t, a[:pre])
 
   defp parse_type({param, %{type: :integer} = args, errors}) do
-    case Integer.parse(param) do
+    param
+    |> to_string()
+    |> Integer.parse()
+    |> case do
       {int, _} -> {int, args, errors}
       _ -> {nil, args, errors}
     end

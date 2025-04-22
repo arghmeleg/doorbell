@@ -437,4 +437,23 @@ defmodule DoorbellTest do
     %{response: response} = FakeController.get_stuff(%{}, %{"page" => "meatball"})
     refute response[:errors]
   end
+
+  test "sets default when not passed" do
+    defmodule FakeController do
+      use Doorbell
+      import DoorbellTest, only: [json: 2]
+
+      @endpoint do
+        arg(:page, :integer, default: 42, atomize: true)
+      end
+
+      def get_stuff(conn, params) do
+        assert params[:page] == 42
+        json(conn, params)
+      end
+    end
+
+    %{response: response} = FakeController.get_stuff(%{}, %{})
+    refute response[:errors]
+  end
 end
